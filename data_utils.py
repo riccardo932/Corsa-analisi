@@ -136,6 +136,10 @@ def add_engineered_columns(df: pd.DataFrame) -> pd.DataFrame:
     x.loc[can_derive, "pace_derived"] = True
     x = x.dropna(subset=["date", "distance_km", "pace_min_km", "avg_hr_bpm"])
     x = x[(x["distance_km"] > 0) & (x["pace_min_km"] > 0)]
+    # st.data_editor may return Python date objects instead of pandas timestamps.
+    # Normalize again here so date arithmetic is reliable on Streamlit Cloud.
+    x["date"] = pd.to_datetime(x["date"], errors="coerce")
+    x = x.dropna(subset=["date"])
     x = x.sort_values("date").reset_index(drop=True)
     if x.empty:
         return x
