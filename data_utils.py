@@ -136,16 +136,18 @@ def add_engineered_columns(df: pd.DataFrame) -> pd.DataFrame:
     x.loc[can_derive, "pace_derived"] = True
     x = x.dropna(subset=["date", "distance_km", "pace_min_km", "avg_hr_bpm"])
     x = x[(x["distance_km"] > 0) & (x["pace_min_km"] > 0)]
-    # st.data_editor may return Python date objects instead of pandas timestamps.
-    # Normalize again here so date arithmetic is reliable on Streamlit Cloud.
-    x["date"] = pd.to_datetime(x["date"], errors="coerce")
+    # st.data_editor may return Python date objects (or object dtype) instead of
+    # pandas datetime64. Parse explicitly, then compute elapsed days via ordinal
+    # integers rather than Series datetime subtraction; this is robust across
+    # Streamlit Cloud / pandas dtype variations.
+    x["date"] = pd.to_datetime(x["date"].astype(str), errors="coerce", format="mixed")
     x = x.dropna(subset=["date"])
     x = x.sort_values("date").reset_index(drop=True)
     if x.empty:
         return x
     x["speed_kmh"] = 60.0 / x["pace_min_km"]
-    t0 = x["date"].min()
-    x["t_days"] = (x["date"] - t0).dt.total_seconds() / 86400
+    ordinals = x["date"].map(lambda d: pd.Timestamp(d).toordinal()).astype(float)
+    x["t_days"] = ordinals - float(ordinals.iloc[0])
     return x
 
 
