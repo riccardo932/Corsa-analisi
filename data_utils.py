@@ -129,25 +129,49 @@ def read_uploaded_csv(file_bytes: bytes, filename: str = "upload.csv") -> pd.Dat
 
 def add_engineered_columns(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy()
-    # Deterministic pace derivation is allowed only after dataset confirmation and is tracked.
+
+    numeric_cols = [
+        "duration_min", "distance_km", "pace_min_km", "avg_hr_bpm",
+        "elevation_m", "power_w", "cadence_spm", "rpe",
+    ]
+    for col in numeric_cols:
+        if col in x.columns:
+            x[col] = pd.to_numeric(x[col], errors="coerce")
+
+    if "date" in x.columns:
+        x["date"] = pd.to_datetime(
+            x["date"].astype("string"),
+            errors="coerce",
+            format="mixed",
+        )
+
     x["pace_derived"] = False
-    can_derive = x["pace_min_km"].isna() & x["duration_min"].notna() & x["distance_km"].gt(0)
-    x.loc[can_derive, "pace_min_km"] = x.loc[can_derive, "duration_min"] / x.loc[can_derive, "distance_km"]
+    can_derive = (
+        x["pace_min_km"].isna()
+        & x["duration_min"].notna()
+        & x["distance_km"].notna()
+        & x["distance_km"].gt(0)
+    )
+    x.loc[can_derive, "pace_min_km"] = (
+        x.loc[can_derive, "duration_min"].to_numpy(dtype=float)
+        / x.loc[can_derive, "distance_km"].to_numpy(dtype=float)
+    )
     x.loc[can_derive, "pace_derived"] = True
+
     x = x.dropna(subset=["date", "distance_km", "pace_min_km", "avg_hr_bpm"])
-    x = x[(x["distance_km"] > 0) & (x["pace_min_km"] > 0)]
-    # st.data_editor may return Python date objects (or object dtype) instead of
-    # pandas datetime64. Parse explicitly, then compute elapsed days via ordinal
-    # integers rather than Series datetime subtraction; this is robust across
-    # Streamlit Cloud / pandas dtype variations.
-    x["date"] = pd.to_datetime(x["date"].astype(str), errors="coerce", format="mixed")
-    x = x.dropna(subset=["date"])
+    x = x.loc[x["distance_km"].gt(0) & x["pace_min_km"].gt(0)].copy()
     x = x.sort_values("date").reset_index(drop=True)
+
     if x.empty:
         return x
-    x["speed_kmh"] = 60.0 / x["pace_min_km"]
-    ordinals = x["date"].map(lambda d: pd.Timestamp(d).toordinal()).astype(float)
-    x["t_days"] = ordinals - float(ordinals.iloc[0])
+
+    x["speed_kmh"] = 60.0 / x["pace_min_km"].to_numpy(dtype=float)
+
+    ordinals = np.array(
+        [pd.Timestamp(v).toordinal() for v in x["date"]],
+        dtype=float,
+    )
+    x["t_days"] = ordinals - ordinals[0]
     return x
 
 
